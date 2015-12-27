@@ -143,10 +143,10 @@ int HashTableWithOpenAddressing::Delete(int key) {
 }
 int HashTableWithOpenAddressing::hash1(int key) {
 	int hashValue;
-	// /* division */
-	// hashValue = key % _capcity;
-	/* multiplication */
-	hashValue = (int)(_capcity * (key * 0.618 - (int)(key * 0.618)));
+	/* division */
+	hashValue = key % _capcity;
+	// /* multiplication */
+	// hashValue = (int)(_capcity * (key * 0.618 - (int)(key * 0.618)));
 	// /* universal hasing */
 	// hashValue = ((2 * key + 3) % 83) % _capcity;
 	return hashValue;
@@ -165,12 +165,12 @@ int HashTableWithOpenAddressing::hash2(int key) {
 
 int HashTableWithOpenAddressing::hash(int key, int counter) {
 	int hashValue;
-	// /* linear probing */
-	// hashValue = (hash1(key) + counter) % _capcity;
+	/* linear probing */
+	hashValue = (hash1(key) + counter) % _capcity;
 	// /* quadratic probing */
 	// hashValue = (hash1(key) + counter * (counter + 1) / 2) % _capcity;
-	/* double hashing */
-	hashValue = (hash1(key) + counter * hash2(key)) % _capcity;
+	// /* double hashing */
+	// hashValue = (hash1(key) + counter * hash2(key)) % _capcity;
 	return hashValue;
 }
 void HashTableWithOpenAddressing::Print() {
