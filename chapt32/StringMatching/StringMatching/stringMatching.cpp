@@ -32,6 +32,7 @@
 #include <unordered_set>
 #include <vector>
 #include <chrono>
+#include <thread>
 
 using namespace std;
 #pragma region DebugSetting
@@ -48,18 +49,16 @@ const int INF = 0x7FFFFFFF;
 const int ALPHABET_SIZE = 256;
 
 typedef void(*match_algo)(string &, string &);
-
+void print_result(string &text, string &pattern, int s);
 void measure_time(string text, string pattern, string algorithm_name, match_algo match) {
     auto start = std::chrono::high_resolution_clock::now();
     match(text, pattern);
     auto end = std::chrono::high_resolution_clock::now();
     std::chrono::duration<double> diff = end - start;
     std::cout << "Time for " << algorithm_name << " is : " << chrono::duration<double, milli>(end - start).count() << " ms\n";
+    cout << "----------------------------------------------------\n";
 }
-void print_result(string &text, string &pattern, int s) {
-    //    return;
-    cout << "Pattern occurs with shift " << s << "  : " << text.substr(0, s) << "___" << text.substr(s, pattern.size()) << "___" << text.substr(s + pattern.size()) << endl;
-}
+
 bool matches(string &text, string &pattern, int s) {
     for (int i = 0; i < pattern.size(); ++i) {
         if (pattern[i] != text[s + i]) {
@@ -219,6 +218,231 @@ void finite_automaton_matcher(string &text, string &pattern) {
         }
     }
 }
+
+void compute_prefix_function(string &pattern, vector<int> &next) {
+    int m = pattern.length(),//index start from 0
+        k = 0;//number of chars that has matched
+    next[0] = 0;
+
+    for (int q = 1; q < m; ++q) {
+        while (k > 0 && pattern[k] != pattern[q]) {
+            k = next[k - 1];
+        }
+
+        if (pattern[k] == pattern[q]) {
+            ++k;
+        }
+
+        next[q] = k;
+    }
+}
+
+void knuth_morris_pratt_matcher(string &text, string &pattern) {
+    int n = text.length(),
+        m = pattern.length(),//index begin at 0
+        q = 0;//number of chars matched
+    vector<int> next(pattern.length());
+    compute_prefix_function(pattern, next);
+
+    for (int i = 0; i < n; ++i) {
+        while (q > 0 && pattern[q] != text[i]) {//pattern[q] is the q+1 elem
+            q = next[q - 1];
+        }
+
+        if (pattern[q] == text[i]) {
+            ++q;
+        }
+
+        if(q == m) {
+            print_result(text, pattern, i + 1 - m);
+            q = next[q - 1];
+        }
+    }
+}
+
+void improve_prefix_function(string &pattern, vector<int> &next) {
+    vector<int> original(next);
+    int m = next.size();
+
+    for (int q = 0; q < m - 1; ++q) {
+        if(original[q] == 0) {
+            next[q] = 0;
+        } else {
+            if (pattern[original[q]] == pattern[q + 1]) {
+                next[q] = next[original[q] - 1];
+            } else {
+                next[q] = original[q];
+            }
+        }
+    }
+}
+
+void knuth_morris_pratt_matcher_improved_v1(string &text, string &pattern) {
+    int n = text.length(),
+        m = pattern.length(),//index begin at 0
+        q = 0;//number of chars matched
+    vector<int> next(pattern.length());
+    compute_prefix_function(pattern, next);
+    improve_prefix_function(pattern, next);
+
+    for (int i = 0; i < n; ++i) {
+        while (q > 0 && pattern[q] != text[i]) {//pattern[q] is the q+1 elem
+            q = next[q - 1];
+        }
+
+        if (pattern[q] == text[i]) {
+            ++q;
+        }
+
+        if (q == m) {
+            print_result(text, pattern, i + 1 - m);
+            q = next[q - 1];
+        }
+    }
+}
+void check_cyclic_rotation(string &text, string &pattern) {
+    int n = text.length(),
+        m = pattern.length(),//index begin at 0
+        q = 0;//number of chars matched
+
+    if(n != m) {
+        cout << "NOT a cyclic rotation\n";
+        return;
+    }
+
+    vector<int> next(pattern.length());
+    compute_prefix_function(pattern, next);
+    improve_prefix_function(pattern, next);
+    bool pass_first_part = false, pass_second_part = true;
+
+    for (int i = 0; i < n; ++i) {
+        while (q > 0 && pattern[q] != text[i]) {//pattern[q] is the q+1 elem
+            q = next[q - 1];
+        }
+
+        if (pattern[q] == text[i]) {
+            if(i == n - 1) {
+                pass_first_part = true;
+            }
+
+            ++q;
+        }
+    }
+
+    if(pass_first_part) {
+        for (int i = 0; i < n - q; ++i)
+            if(pattern[q + i] != text[i]) {
+                pass_second_part = false;
+                break;
+            }
+    }
+
+    if(pass_first_part && pass_second_part) {
+        cout << "YES : " << text << "<-> and <->" << pattern << " are cyclic rotaitons of each other" << endl;
+        cout << "with a left rotation shift of " << n - q << " steps\n";
+    } else {
+        cout << "NOT a cyclic rotation\n";
+    }
+}
+
+void init_transition_function_improved_v1(vector<vector<int>> &transition, string &pattern, unordered_map<char, int> &alphabetMap) {
+    int m = pattern.length();
+    vector<int> next(pattern.length());
+    compute_prefix_function(pattern, next);
+
+    for (auto a : alphabetMap) {
+        transition[0][a.second] = pattern[0] == a.first ? 1 : 0;
+    }
+
+    for (int q = 1; q <= m; ++q) {
+        for (auto a : alphabetMap) {
+            if (q == m || pattern[q] != a.first) {
+                transition[q][a.second] = transition[next[q - 1]][a.second];
+                continue;
+            }
+
+            transition[q][a.second] = q + 1;
+        }
+    }
+}
+
+void finite_automaton_matcher_improved_v1(string &text, string &pattern) {
+    unordered_map<char, int> alphabetMap;
+    int idx = 0;
+
+    //find out the set of alphabets
+    for (auto c : text)
+        if (alphabetMap.find(c) == alphabetMap.end()) {
+            alphabetMap[c] = idx++;
+        }
+
+    for (auto c : pattern)
+        if (alphabetMap.find(c) == alphabetMap.end()) {
+            alphabetMap[c] = idx++;
+        }
+
+    vector<vector<int>> transition(pattern.size() + 1, vector<int>(alphabetMap.size()));
+    init_transition_function_improved_v1(transition, pattern, alphabetMap);
+    int n = text.size(),
+        m = pattern.size(),
+        q = 0;
+
+    for (int i = 0; i < n; ++i) {
+        q = transition[q][alphabetMap[text[i]]];
+
+        if (q == m) {
+            print_result(text, pattern, i - m + 1);
+        }
+    }
+}
+
+void print_result(string &text, string &pattern, int s) {
+    return;
+    cout << "Pattern occurs with shift " << s << "  : " << text.substr(0, s) << "___" << text.substr(s, pattern.size()) << "___" << text.substr(s + pattern.size()) << endl;
+}
+
+struct Matcher {
+    string name;
+    match_algo pFunction;
+
+    Matcher(string name, match_algo p_function)
+        : name(name),
+          pFunction(p_function) {
+    }
+};
+
+void repetition_factor(string &pattern, vector<int> &factors) {
+    for (int i = 1; i <= pattern.size(); ++i) {
+        int l = 1;
+        factors[i - 1] = 1;
+        bool valid;
+
+        for (; l <= i  / 2; ++l) {
+            valid = true;
+
+            if(i % l != 0) {
+                continue;
+            }
+
+            for (int j = 1; j <= l; ++j) {
+                for (int p = j; p + l <= i; p += l)
+                    if(pattern[p - 1] != pattern[p + l - 1]) {
+                        valid = false;
+                        goto Invalid;
+                    }
+            }
+
+            if (valid) {
+                factors[i - 1] = i / l;
+                break;
+            }
+
+        Invalid:
+            ;//place holder
+        }
+    }
+}
+
 int main() {
     #pragma region GET_INPUT
     {
@@ -228,15 +452,87 @@ int main() {
         #endif
     }
     #pragma endregion
-    string pattern, text;
+    string pattern, text ;
     getline(cin, pattern);
     getline(cin, text);
     cout << "pattern " << pattern << " with size of " << pattern.size() << endl;
     cout << "text with size of " << text.size() << endl;
     cout << "----------------------------------------------------\n";
-    measure_time(text, pattern, "naive_string_matcher", naive_string_matcher);
-    measure_time(text, pattern, "rabin_karp_matcher", rabin_karp_matcher);
-    measure_time(text, pattern, "finite_automaton_matcher", finite_automaton_matcher);
-    measure_time(text, pattern, "knuth_morris_pratt_matcher", knuth_morris_pratt_matcher);
-    return 0;
+    vector<Matcher> matchers;
+    matchers.push_back(Matcher("naive_string_matcher", naive_string_matcher));
+    matchers.push_back(Matcher("rabin_karp_matcher", rabin_karp_matcher));
+    matchers.push_back(Matcher("finite_automaton_matcher", finite_automaton_matcher));
+    matchers.push_back(Matcher("finite_automaton_matcher_improved_v1", finite_automaton_matcher_improved_v1));
+    matchers.push_back(Matcher("knuth_morris_pratt_matcher", knuth_morris_pratt_matcher));
+    matchers.push_back(Matcher("knuth_morris_pratt_matcher_improved_v1", knuth_morris_pratt_matcher_improved_v1));
+    matchers.push_back(Matcher("check_cyclic_rotation", check_cyclic_rotation));
+    //thread version
+    vector<thread> threads;
+
+    for (auto &matcher : matchers) {
+        threads.push_back(
+            move(
+                thread(
+                    measure_time,
+                    text,
+                    pattern,
+                    matcher.name,
+                    matcher.pFunction
+                )
+            )
+        );
+    }
+
+    for (auto &t : threads) {
+        t.join();
+    }
+
+    ////non therad version
+    //for(auto &matcher : matchers) {
+    //    measure_time(
+    //        text,
+    //        pattern,
+    //        matcher.name,
+    //        matcher.pFunction
+    //    );
+    //}
+    //
+    //
+    //
+    ////32-1
+    //vector<int> factors(pattern.size());
+    //repetition_factor(pattern, factors);
+    //for (auto f : pattern) {
+    //    cout << f << "\t";
+    //}
+    //cout << endl;
+    //for (auto f : factors) {
+    //    cout << f << "\t";
+    //}
+    //cout << endl;
+    //return 0;
 }
+
+
+
+
+
+// test data
+//pattern aa....aa with size of 9996
+//text aa....aaaaa with size of 59976
+//----------------------------------------------------
+//NOT a cyclic rotation
+//Time for check_cyclic_rotation is : 0.0078 ms
+//----------------------------------------------------
+//Time for knuth_morris_pratt_matcher is : 339.11 ms
+//----------------------------------------------------
+//Time for knuth_morris_pratt_matcher_improved_v1 is : 448.079 ms
+//----------------------------------------------------
+//Time for finite_automaton_matcher_improved_v1 is : 2416.89 ms
+//----------------------------------------------------
+//Time for finite_automaton_matcher is : 68166.3 ms
+//----------------------------------------------------
+//Time for rabin_karp_matcher is : 656768 ms
+//----------------------------------------------------
+//Time for naive_string_matcher is : 657601 ms
+//----------------------------------------------------
